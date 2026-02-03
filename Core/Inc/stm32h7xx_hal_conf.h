@@ -74,7 +74,7 @@
 /* #define HAL_SPDIFRX_MODULE_ENABLED   */
 /* #define HAL_SPI_MODULE_ENABLED   */
 /* #define HAL_SWPMI_MODULE_ENABLED   */
-/* #define HAL_TIM_MODULE_ENABLED   */
+#define HAL_TIM_MODULE_ENABLED
 /* #define HAL_UART_MODULE_ENABLED   */
 /* #define HAL_USART_MODULE_ENABLED   */
 /* #define HAL_IRDA_MODULE_ENABLED   */
@@ -506,6 +506,14 @@
 #else
   #define assert_param(expr) ((void)0U)
 #endif /* USE_FULL_ASSERT */
+
+/* ========== 新增FreeRTOS兼容宏（适配AC6/GCC移植层） ========== */
+#ifndef FREERTOS_H
+#define FREERTOS_H
+/* 屏蔽HAL库默认的SysTick中断控制，交给FreeRTOS接管 */
+#define HAL_SYSTICK_DISABLE_INTERRUPT()  do { SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk; } while(0)
+#define HAL_SYSTICK_ENABLE_INTERRUPT()   do { SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk; } while(0)
+#endif /* FREERTOS_H */
 
 #ifdef __cplusplus
 }

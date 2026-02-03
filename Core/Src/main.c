@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
+#include "task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,7 +33,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define TASK_UART_STACK_SIZE    512
+#define TASK_UART_PRIORITY      2
+#define TASK_LED_STACK_SIZE    128
+#define TASK_LED_PRIORITY      2
 
+#define LED_PIN    GPIO_PIN_5
+#define LED_PORT   GPIOA
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -43,14 +50,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+TaskHandle_t xTaskLEDHandle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-
+void vTaskLED(void *pvParameters);
+void vTaskUART(void *pvParameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -91,13 +99,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
-  xTaskCreate(StartTask,
-              "start",
-              512,
-              NULL,
-              tskIDLE_PRIORITY + 1,
-              NULL);
+xTaskCreate(vTaskLED,               // 任务函数
+              "TaskLED",              // 任务名称（仅调试用）
+              TASK_LED_STACK_SIZE,    // 栈大小
+              NULL,                   // 任务参数
+              TASK_LED_PRIORITY,      // 优先级
+              &xTaskLEDHandle);       // 任务句柄
 
+
+  // 7. 启动FreeRTOS调度器（必须）
   vTaskStartScheduler();
   /* USER CODE END 2 */
 
@@ -106,7 +116,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+    Error_Handler();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -171,7 +181,30 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void vTaskLED(void *pvParameters)
+{
+  (void)pvParameters; // 消除未使用参数警告
 
+  // 任务死循环（FreeRTOS任务必须有无限循环）
+  for (;;)
+  {
+    HAL_GPIO_TogglePin(LED_PORT, LED_PIN); // 翻转LED引脚
+    vTaskDelay(pdMS_TO_TICKS(500));        // 延时500ms（FreeRTOS延时）
+  }
+}
+
+// 10. 实现串口任务函数（如果未初始化串口，可注释此函数）
+void vTaskUART(void *pvParameters)
+{
+  (void)pvParameters;
+
+  for (;;)
+  {
+    // 示例：串口打印（需先初始化USART1，否则注释）
+    // HAL_UART_Transmit(&huart1, (uint8_t*)"FreeRTOS Running!\r\n", 18, 100);
+    vTaskDelay(pdMS_TO_TICKS(1000)); // 1秒打印一次
+  }
+}
 /* USER CODE END 4 */
 
  /* MPU Configuration */

@@ -275,8 +275,9 @@ UsageFault_Handler\
                 B       .
                 ENDP
 SVC_Handler     PROC
-                EXPORT  SVC_Handler                      [WEAK]
-                B       .
+                EXPORT  SVC_Handler                      ;[WEAK]
+                IMPORT  vPortSVCHandler
+                B       vPortSVCHandler
                 ENDP
 DebugMon_Handler\
                 PROC
@@ -284,12 +285,14 @@ DebugMon_Handler\
                 B       .
                 ENDP
 PendSV_Handler  PROC
-                EXPORT  PendSV_Handler                    [WEAK]
-                B       .
+                EXPORT  PendSV_Handler                    ;[WEAK]
+                IMPORT  xPortPendSVHandler
+                B       xPortPendSVHandler
                 ENDP
 SysTick_Handler PROC
-                EXPORT  SysTick_Handler                   [WEAK]
-                B       .
+                EXPORT  SysTick_Handler                   ;[WEAK]
+                IMPORT  xPortSysTickHandler
+                B       xPortSysTickHandler
                 ENDP                                     
                                                           
 Default_Handler PROC                                      
