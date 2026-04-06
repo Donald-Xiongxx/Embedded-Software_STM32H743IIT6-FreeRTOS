@@ -44,3 +44,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# 非项目文件
+/Local-Files/

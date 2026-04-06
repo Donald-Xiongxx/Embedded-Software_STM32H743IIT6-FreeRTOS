@@ -138,7 +138,7 @@
           </Flash1>
           <bUseTDR>1</bUseTDR>
           <Flash2>BIN\UL2V8M.DLL</Flash2>
-          <Flash3></Flash3>
+          <Flash3>"" ()</Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -338,7 +338,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>USE_PWR_LDO_SUPPLY,USE_HAL_DRIVER,STM32H743xx</Define>
+              <Define>USE_PWR_LDO_SUPPLY,USE_HAL_DRIVER,STM32H743xx,SQLITE_OS_OTHER=1,SQLITE_THREADSAFE=0</Define>
               <Undefine></Undefine>
               <IncludePath>../Core/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;..\Middlewares\FreeRTOS\portable\GCC;..\Middlewares\FreeRTOS\include</IncludePath>
             </VariousControls>
@@ -372,10 +372,10 @@
             <DataAddressRange></DataAddressRange>
             <pXoBase></pXoBase>
             <ScatterFile></ScatterFile>
-            <IncludeLibs></IncludeLibs>
-            <IncludeLibsPath></IncludeLibsPath>
+            <IncludeLibs>libsqlite3.lib</IncludeLibs>
+            <IncludeLibsPath>..\Lib;</IncludeLibsPath>
             <Misc></Misc>
-            <LinkerInputFile></LinkerInputFile>
+            <LinkerInputFile>../Lib/libsqlite3.lib</LinkerInputFile>
             <DisabledWarnings></DisabledWarnings>
           </LDads>
         </TargetArmAds>
@@ -413,6 +413,16 @@
               <FileName>stm32h7xx_hal_msp.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32h7xx_hal_msp.c</FilePath>
+            </File>
+            <File>
+              <FileName>flash_storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/flash_storage.c</FilePath>
+            </File>
+            <File>
+              <FileName>sqlite_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/sqlite_task.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -548,6 +558,16 @@
               <FileName>port.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Middlewares\FreeRTOS\portable\GCC\port.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Lib</GroupName>
+          <Files>
+            <File>
+              <FileName>libsqlite3.lib</FileName>
+              <FileType>4</FileType>
+              <FilePath>..\Lib\libsqlite3.lib</FilePath>
             </File>
           </Files>
         </Group>
