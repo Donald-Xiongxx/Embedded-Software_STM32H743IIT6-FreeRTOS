@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "sqlite_task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,13 +34,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TASK_UART_STACK_SIZE    512
-#define TASK_UART_PRIORITY      2
-#define TASK_LED_STACK_SIZE    128
-#define TASK_LED_PRIORITY      2
+#define TASK_LED1_STACK  128
+#define TASK_LED2_STACK  128
+#define TASK_LED_PRIO    1
+#define LED_BLINK_MS     500
 
-#define LED_PIN    GPIO_PIN_5
-#define LED_PORT   GPIOA
+#define LED1_PORT   GPIOB
+#define LED1_PIN     GPIO_PIN_0
+#define LED2_PORT   GPIOB
+#define LED2_PIN     GPIO_PIN_1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,15 +53,17 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-TaskHandle_t xTaskLEDHandle = NULL;
+TaskHandle_t xTaskLED1Handle = NULL;
+TaskHandle_t xTaskLED2Handle = NULL;
+TaskHandle_t xTaskSQLiteHandle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-void vTaskLED(void *pvParameters);
-void vTaskUART(void *pvParameters);
+static void vTaskLED1(void *pvParameters);
+static void vTaskLED2(void *pvParameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -99,16 +104,19 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
-xTaskCreate(vTaskLED,               // 任务函数
-              "TaskLED",              // 任务名称（仅调试用）
-              TASK_LED_STACK_SIZE,    // 栈大小
-              NULL,                   // 任务参数
-              TASK_LED_PRIORITY,      // 优先级
-              &xTaskLEDHandle);       // 任务句柄
+  BaseType_t xReturn1 = xTaskCreate(vTaskLED1, "LED1_Task", TASK_LED1_STACK, NULL, TASK_LED_PRIO, &xTaskLED1Handle);
+  BaseType_t xReturn2 = xTaskCreate(vTaskLED2, "LED2_Task", TASK_LED2_STACK, NULL, TASK_LED_PRIO, &xTaskLED2Handle);
+  BaseType_t xReturn3 = xTaskCreate(vTaskSQLite, "SQLite_Task", 512, NULL, TASK_LED_PRIO + 1, &xTaskSQLiteHandle);
 
-
-  // 7. 启动FreeRTOS调度器（必须）
-  vTaskStartScheduler();
+  if(pdPASS == xReturn1 && pdPASS == xReturn2 && pdPASS == xReturn3)
+  {
+    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_SET);
+    vTaskStartScheduler();
+  }
+  else
+  {
+    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_RESET);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,7 +124,6 @@ xTaskCreate(vTaskLED,               // 任务函数
   while (1)
   {
     /* USER CODE END WHILE */
-    Error_Handler();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -181,30 +188,33 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void vTaskLED(void *pvParameters)
-{
-  (void)pvParameters; // 消除未使用参数警告
-
-  // 任务死循环（FreeRTOS任务必须有无限循环）
-  for (;;)
-  {
-    HAL_GPIO_TogglePin(LED_PORT, LED_PIN); // 翻转LED引脚
-    vTaskDelay(pdMS_TO_TICKS(500));        // 延时500ms（FreeRTOS延时）
-  }
-}
-
-// 10. 实现串口任务函数（如果未初始化串口，可注释此函数）
-void vTaskUART(void *pvParameters)
+static void vTaskLED1(void *pvParameters)
 {
   (void)pvParameters;
-
-  for (;;)
+  
+  for(;;)
   {
-    // 示例：串口打印（需先初始化USART1，否则注释）
-    // HAL_UART_Transmit(&huart1, (uint8_t*)"FreeRTOS Running!\r\n", 18, 100);
-    vTaskDelay(pdMS_TO_TICKS(1000)); // 1秒打印一次
+    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_RESET);
+    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+    
+    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_SET);
+    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
   }
 }
+
+static void vTaskLED2(void *pvParameters)
+{
+  (void)pvParameters;
+  
+  for(;;)
+  {
+    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+    HAL_GPIO_WritePin(LED2_PORT, LED2_PIN, GPIO_PIN_RESET);
+    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+    HAL_GPIO_WritePin(LED2_PORT, LED2_PIN, GPIO_PIN_SET);
+  }
+}
+
 /* USER CODE END 4 */
 
  /* MPU Configuration */
