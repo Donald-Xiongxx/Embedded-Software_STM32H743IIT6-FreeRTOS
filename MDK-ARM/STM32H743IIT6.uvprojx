@@ -425,6 +425,11 @@
               <FilePath>../Core/Src/sqlite_task.c</FilePath>
             </File>
             <File>
+              <FileName>key.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/key.c</FilePath>
+            </File>
+            <File>
               <FileName>memory_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/memory_config.c</FilePath>
