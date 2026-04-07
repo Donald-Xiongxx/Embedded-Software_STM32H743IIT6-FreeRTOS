@@ -430,6 +430,11 @@
               <FilePath>../Core/Src/key.c</FilePath>
             </File>
             <File>
+              <FileName>timestamp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/timestamp.c</FilePath>
+            </File>
+            <File>
               <FileName>memory_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/memory_config.c</FilePath>

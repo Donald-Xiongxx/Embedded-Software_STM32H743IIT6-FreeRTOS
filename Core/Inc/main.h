@@ -36,7 +36,10 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+typedef enum {
+    SYSTEM_RUNNING = 0,
+    SYSTEM_PAUSED
+} SystemState_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

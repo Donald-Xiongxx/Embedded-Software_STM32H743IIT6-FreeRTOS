@@ -27,14 +27,12 @@
 #include "usart.h"
 #include "sqlite_task.h"
 #include "key.h"
+#include "timestamp.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {
-    SYSTEM_RUNNING = 0,
-    SYSTEM_PAUSED
-} SystemState_t;
+/* SystemState_t defined in main.h */
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -113,6 +111,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   usart_init(115200);
+  timestamp_init();
 
   /* USER CODE BEGIN 2 */
   xTaskCreate(vTaskLED1,  "LED1_Task",  TASK_LED_STACK,  NULL, TASK_LED_PRIO,  &xTaskLED1Handle);
@@ -247,7 +246,9 @@ static void vTaskKey(void *pvParameters)
         case KEY1_PRES:
           if (g_system_state == SYSTEM_PAUSED)
           {
-            printf("[KEY] KEY1 -> Print Sensor Data\r\n");
+            uint32_t ms = get_tick_ms();
+            uint64_t us = get_tick_us();
+            printf("[KEY] KEY1 -> Current Timestamp: %u ms (%llu us)\r\n", ms, us);
           }
           break;
 
