@@ -190,7 +190,7 @@
             <hadIRAM2>1</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
-            <useUlib>0</useUlib>
+            <useUlib>1</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
             <nSecure>0</nSecure>
@@ -371,7 +371,7 @@
             <TextAddressRange></TextAddressRange>
             <DataAddressRange></DataAddressRange>
             <pXoBase></pXoBase>
-            <ScatterFile></ScatterFile>
+            <ScatterFile>STM32H743IIT6.sct</ScatterFile>
             <IncludeLibs>libsqlite3.lib</IncludeLibs>
             <IncludeLibsPath>..\Lib;</IncludeLibsPath>
             <Misc></Misc>
@@ -415,14 +415,19 @@
               <FilePath>../Core/Src/stm32h7xx_hal_msp.c</FilePath>
             </File>
             <File>
-              <FileName>flash_storage.c</FileName>
+              <FileName>usart.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Core/Src/flash_storage.c</FilePath>
+              <FilePath>../Core/Src/usart.c</FilePath>
             </File>
             <File>
               <FileName>sqlite_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/sqlite_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>memory_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/memory_config.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -503,6 +508,16 @@
               <FileName>stm32h7xx_hal_i2c_ex.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_i2c_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32h7xx_hal_uart_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32h7xx_hal_exti.c</FileName>

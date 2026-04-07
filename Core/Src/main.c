@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "usart.h"
 #include "sqlite_task.h"
 /* USER CODE END Includes */
 
@@ -34,10 +35,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TASK_LED1_STACK  128
-#define TASK_LED2_STACK  128
-#define TASK_LED_PRIO    1
-#define LED_BLINK_MS     500
+#define TASK_LED_STACK    256
+#define TASK_SQLITE_STACK 2048  // SQLite需要更大的栈空间
+#define TASK_LED_PRIO     2
+#define TASK_SQLITE_PRIO  2
+#define LED_BLINK_MS      500
 
 #define LED1_PORT   GPIOB
 #define LED1_PIN     GPIO_PIN_0
@@ -103,20 +105,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  /* USER CODE BEGIN 2 */
-  BaseType_t xReturn1 = xTaskCreate(vTaskLED1, "LED1_Task", TASK_LED1_STACK, NULL, TASK_LED_PRIO, &xTaskLED1Handle);
-  BaseType_t xReturn2 = xTaskCreate(vTaskLED2, "LED2_Task", TASK_LED2_STACK, NULL, TASK_LED_PRIO, &xTaskLED2Handle);
-  BaseType_t xReturn3 = xTaskCreate(vTaskSQLite, "SQLite_Task", 512, NULL, TASK_LED_PRIO + 1, &xTaskSQLiteHandle);
+  usart_init(115200);
 
-  if(pdPASS == xReturn1 && pdPASS == xReturn2 && pdPASS == xReturn3)
-  {
-    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_SET);
-    vTaskStartScheduler();
-  }
-  else
-  {
-    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_RESET);
-  }
+  /* USER CODE BEGIN 2 */
+  xTaskCreate(vTaskLED1, "LED1_Task", TASK_LED_STACK, NULL, TASK_LED_PRIO, &xTaskLED1Handle);
+  xTaskCreate(vTaskLED2, "LED2_Task", TASK_LED_STACK, NULL, TASK_LED_PRIO, &xTaskLED2Handle);
+  xTaskCreate(vTaskSQLite, "SQLite_Task", TASK_SQLITE_STACK, NULL, TASK_SQLITE_PRIO, &xTaskSQLiteHandle);
+
+  vTaskStartScheduler();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -191,13 +187,13 @@ void SystemClock_Config(void)
 static void vTaskLED1(void *pvParameters)
 {
   (void)pvParameters;
-  
+
   for(;;)
   {
-    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_RESET);
-    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
-    
     HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_SET);
+    vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+
+    HAL_GPIO_WritePin(LED1_PORT, LED1_PIN, GPIO_PIN_RESET);
     vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
   }
 }
@@ -205,19 +201,25 @@ static void vTaskLED1(void *pvParameters)
 static void vTaskLED2(void *pvParameters)
 {
   (void)pvParameters;
-  
+
+  vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+
   for(;;)
   {
+    HAL_GPIO_WritePin(LED2_PORT, LED2_PIN, GPIO_PIN_SET);
     vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
+
     HAL_GPIO_WritePin(LED2_PORT, LED2_PIN, GPIO_PIN_RESET);
     vTaskDelay(pdMS_TO_TICKS(LED_BLINK_MS));
-    HAL_GPIO_WritePin(LED2_PORT, LED2_PIN, GPIO_PIN_SET);
   }
 }
-
 /* USER CODE END 4 */
 
- /* MPU Configuration */
+/* USER CODE BEGIN 5 */
+
+/* USER CODE END 5 */
+
+/* MPU Configuration */
 
 void MPU_Config(void)
 {
@@ -226,21 +228,48 @@ void MPU_Config(void)
   /* Disables the MPU */
   HAL_MPU_Disable();
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /* 配置Region 0: SRAM1 (512KB) - 允许读写执行 */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-  MPU_InitStruct.BaseAddress = 0x0;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
-  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.BaseAddress = 0x30000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.AccessPermission = MPU_REGION_PRIV_RW_URO;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* 配置Region 1: SRAM2 (288KB) - 允许读写执行 */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+  MPU_InitStruct.BaseAddress = 0x30020000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_256KB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_PRIV_RW_URO;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* 配置Region 2: DTCM RAM (128KB) - 最高权限 */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+  MPU_InitStruct.BaseAddress = 0x20000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_PRIV_RW_URO;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
@@ -260,7 +289,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.

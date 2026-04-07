@@ -12,8 +12,8 @@
 #define configCPU_CLOCK_HZ                      (480000000UL)  // SYSCLK = 480MHz（标准时钟树）
 #define configTICK_RATE_HZ                      (1000UL)       // 1ms节拍（port.c用于计算SysTick重载值）
 #define configMAX_PRIORITIES                    (16)           // ≤32，满足端口优化要求
-#define configMINIMAL_STACK_SIZE                (128)          // 空闲任务栈大小
-#define configTOTAL_HEAP_SIZE                   (16384UL)      // 堆大小16KB
+#define configMINIMAL_STACK_SIZE                (256)          // 空闲任务栈大小
+#define configTOTAL_HEAP_SIZE                   (196608UL)     // 堆大小192KB（SRAM1区域，足够SQLite）
 #define configMAX_TASK_NAME_LEN                 (16)           // 任务名最大长度
 #define configUSE_TRACE_FACILITY                0              // 关闭追踪
 #define configIDLE_SHOULD_YIELD                 1              // 空闲任务让步
@@ -31,6 +31,9 @@
 #define configKERNEL_INTERRUPT_PRIORITY         (15)    // 内核中断最低优先级（port.c设为portMIN_INTERRUPT_PRIORITY=255，实际映射为15）
 #define configMAX_SYSCALL_INTERRUPT_PRIORITY    (5)     // port.c中直接作为汇编参数，必须为5（0-15之间）
 #define configPRIO_BITS                         (4)     // STM32H743的NVIC优先级位数
+
+/* ============== 2.1 Heap配置（使用SRAM1） ============== */
+#define configAPPLICATION_ALLOCATED_HEAP         (1)     // 使用应用定义的heap（在SRAM1区域）
 
 // /* ============== 3. 移植层适配（完全匹配portmacro.h/port.c） ============== */
 // #define portSTACK_GROWTH                        (-1)    // 栈向下生长（portmacro.h定义）
