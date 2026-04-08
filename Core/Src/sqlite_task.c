@@ -565,6 +565,70 @@ int sqlite_task_query_latest(float *temperature, float *humidity)
     return -1;
 }
 
+void sqlite_task_print_status(void)
+{
+    printf("\r\n");
+    printf("========================================\r\n");
+    printf("         SQLite Database Status        \r\n");
+    printf("========================================\r\n");
+
+    if(db == NULL)
+    {
+        printf("[DB] Database: NOT INITIALIZED\r\n");
+    }
+    else
+    {
+        const char *sql = "SELECT COUNT(*) FROM sensor_data";
+        sqlite3_stmt *stmt;
+        int result = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+        if(result != SQLITE_OK)
+        {
+            printf("[DB] Database: ERROR\r\n");
+        }
+        else
+        {
+            if(sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                int count = sqlite3_column_int(stmt, 0);
+                printf("[DB] Database: READY\r\n");
+                printf("[DB] Records: %d\r\n", count);
+
+                if(count > 0)
+                {
+                    sqlite3_finalize(stmt);
+
+                    const char *sql2 = "SELECT timestamp, temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 1";
+                    sqlite3_stmt *stmt2;
+                    if(sqlite3_prepare_v2(db, sql2, -1, &stmt2, NULL) == SQLITE_OK)
+                    {
+                        if(sqlite3_step(stmt2) == SQLITE_ROW)
+                        {
+                            int ts = sqlite3_column_int(stmt2, 0);
+                            float temp = (float)sqlite3_column_double(stmt2, 1);
+                            float humi = (float)sqlite3_column_double(stmt2, 2);
+                            printf("[DB] Latest: T=%dms | Temp=%.1fC | Humi=%.1f%%\r\n", ts, temp, humi);
+                        }
+                        sqlite3_finalize(stmt2);
+                    }
+                }
+                else
+                {
+                    sqlite3_finalize(stmt);
+                    printf("[DB] Database: EMPTY\r\n");
+                }
+            }
+            else
+            {
+                sqlite3_finalize(stmt);
+                printf("[DB] Database: EMPTY\r\n");
+            }
+        }
+    }
+
+    printf("========================================\r\n");
+}
+
 void vTaskSQLite(void *pvParameters)
 {
     (void)pvParameters;

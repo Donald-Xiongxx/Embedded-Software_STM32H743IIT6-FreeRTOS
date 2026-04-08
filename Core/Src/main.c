@@ -219,6 +219,7 @@ static void vTaskKey(void *pvParameters)
 {
   (void)pvParameters;
   uint8_t key_value;
+  static uint8_t last_key = 0;
 
   printf("[KEY] Key Task Started\r\n");
 
@@ -226,10 +227,30 @@ static void vTaskKey(void *pvParameters)
   {
     key_value = key_scan(0);
 
-    if (key_value != 0)
+    if (last_key == 0 && key_value != 0)
     {
-      switch (key_value)
+      // 按下
+    }
+    else if (last_key != 0 && key_value == 0)
+    {
+      switch (last_key)
       {
+        case KEY0_PRES:
+          if (g_system_state == SYSTEM_PAUSED)
+          {
+            printf("[KEY] KEY0 -> Print Scheduler Log\r\n");
+          }
+          break;
+
+        case KEY1_PRES:
+          if (g_system_state == SYSTEM_PAUSED)
+          {
+            uint32_t ms = get_tick_ms();
+            uint64_t us = get_tick_us();
+            printf("[KEY] KEY1 -> Current Timestamp: %u ms (%llu us)\r\n", ms, us);
+          }
+          break;
+
         case KEY2_PRES:
           if (g_system_state == SYSTEM_RUNNING)
           {
@@ -243,27 +264,18 @@ static void vTaskKey(void *pvParameters)
           }
           break;
 
-        case KEY1_PRES:
-          if (g_system_state == SYSTEM_PAUSED)
-          {
-            uint32_t ms = get_tick_ms();
-            uint64_t us = get_tick_us();
-            printf("[KEY] KEY1 -> Current Timestamp: %u ms (%llu us)\r\n", ms, us);
-          }
-          break;
-
-        case KEY0_PRES:
-          if (g_system_state == SYSTEM_PAUSED)
-          {
-            printf("[KEY] KEY0 -> Print Scheduler Log\r\n");
-          }
+        case (KEY1_PRES | KEY2_PRES):
+          printf("[KEY] KEY2+KEY1 -> Print SQLite Status\r\n");
+          sqlite_task_print_status();
           break;
 
         default:
+          printf("[KEY] ILLEGAL KEY: 0x%02X\r\n", last_key);
           break;
       }
     }
 
+    last_key = key_value;
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }

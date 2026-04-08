@@ -1,6 +1,7 @@
 #include "key.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "usart.h"
 
 void key_init(void)
 {
@@ -8,23 +9,32 @@ void key_init(void)
 
 uint8_t key_scan(uint8_t mode)
 {
-    static uint8_t key_up = 1;
+    static uint8_t last_stable = 0;
+    uint8_t current = 0;
+    uint8_t debounced = 0;
 
-    if (mode) key_up = 1;
+    if (mode) {
+        last_stable = 0;
+        return 0;
+    }
 
-    if (key_up && (KEY0 == GPIO_PIN_RESET || KEY1 == GPIO_PIN_RESET || KEY2 == GPIO_PIN_RESET))
-    {
+    if (KEY0 == GPIO_PIN_RESET) current |= KEY0_MASK;
+    if (KEY1 == GPIO_PIN_RESET) current |= KEY1_MASK;
+    if (KEY2 == GPIO_PIN_RESET) current |= KEY2_MASK;
+    if (WKUP == GPIO_PIN_SET)   current |= WKUP_MASK;
+
+    if (current != last_stable) {
         vTaskDelay(pdMS_TO_TICKS(10));
-        key_up = 0;
 
-        if (KEY0 == GPIO_PIN_RESET) return KEY0_PRES;
-        if (KEY1 == GPIO_PIN_RESET) return KEY1_PRES;
-        if (KEY2 == GPIO_PIN_RESET) return KEY2_PRES;
-    }
-    else if (KEY0 == GPIO_PIN_SET && KEY1 == GPIO_PIN_SET && KEY2 == GPIO_PIN_SET)
-    {
-        key_up = 1;
+        if (KEY0 == GPIO_PIN_RESET) debounced |= KEY0_MASK;
+        if (KEY1 == GPIO_PIN_RESET) debounced |= KEY1_MASK;
+        if (KEY2 == GPIO_PIN_RESET) debounced |= KEY2_MASK;
+        if (WKUP == GPIO_PIN_SET)   debounced |= WKUP_MASK;
+
+        if (debounced == current) {
+            last_stable = current;
+        }
     }
 
-    return 0;
+    return last_stable;
 }
