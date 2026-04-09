@@ -29,6 +29,7 @@
 #include "key.h"
 #include "timestamp.h"
 #include "dht11.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,6 +60,12 @@
 #define TASK_DHT11_STACK   256
 #define TASK_DHT11_PRIO    3
 #define DHT11_READ_INTERVAL_MS  2000
+
+#define FILTER_SAMPLE_COUNT    10
+#define FILTER_MAX_RETRIES     5
+#define FILTER_STD_TEMP_THRESHOLD   1.0f
+#define FILTER_STD_HUMI_THRESHOLD   3.0f
+#define FILTER_RETRY_SUPPLY_COUNT   2
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -70,6 +77,40 @@ TaskHandle_t xTaskSQLiteHandle = NULL;
 TaskHandle_t xTaskDHT11Handle = NULL;
 
 volatile SystemState_t g_system_state = SYSTEM_RUNNING;
+
+typedef struct {
+    float temperature;
+    float humidity;
+} Sample_t;
+
+typedef enum {
+    FILTER_STATE_PHASE1_ESTABLISH,
+    FILTER_STATE_PHASE2_MONITOR
+} FilterState_t;
+
+static Sample_t g_samples[FILTER_SAMPLE_COUNT];
+static uint8_t g_sample_count = 0;
+static FilterState_t g_filter_state = FILTER_STATE_PHASE1_ESTABLISH;
+static uint8_t g_retry_count = 0;
+static uint8_t g_error_count = 0;
+static float g_last_standard_temp = 0.0f;
+static float g_last_standard_humi = 0.0f;
+static uint32_t g_last_cycle_start = 0;
+static uint8_t g_cycle_minute = 0;
+
+static uint8_t g_phase1_pending = 0;
+static uint32_t g_phase1_timestamp = 0;
+static float g_phase1_temp = 0.0f;
+static float g_phase1_humi = 0.0f;
+static uint8_t g_phase1_retry = 0;
+
+#define MINUTE_CYCLE_MS 60000
+
+static uint8_t filter_check_std_deviation(uint8_t count);
+static void filter_remove_extremes(uint8_t *count);
+static void filter_add_sample(float temperature, float humidity, uint8_t *count);
+static uint8_t filter_establish_standard(float *out_temp, float *out_humi, uint8_t *out_env_changed);
+static uint8_t filter_monitor_standard(float *out_temp, float *out_humi, uint8_t *out_env_changed);
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -244,7 +285,8 @@ static void vTaskKey(void *pvParameters)
         case KEY0_PRES:
           if (g_system_state == SYSTEM_PAUSED)
           {
-            printf("[KEY] KEY0 -> Print Scheduler Log\r\n");
+            printf("[KEY] KEY0 -> Export CSV\r\n");
+            sqlite_task_export_csv();
           }
           break;
 
@@ -257,18 +299,24 @@ static void vTaskKey(void *pvParameters)
             printf("========================================\r\n");
             printf("       KEY1 - 传感器数据查询            \r\n");
             printf("========================================\r\n");
-            printf("[时间戳] %u ms (%llu us)\r\n", ms, us);
+            printf("  Timestamp: %u ms (%llu us)\r\n", ms, us);
 
             float temperature, humidity;
-            if(sqlite_task_query_latest(&temperature, &humidity) == 0)
+            uint8_t retry_count, error_count, env_changed;
+            if(sqlite_task_query_latest(&temperature, &humidity, &retry_count, &error_count, &env_changed) == 0)
             {
-              printf("[传感器] 温度: %.1f°C\r\n", temperature);
-              printf("[传感器] 湿度: %.1f%%\r\n", humidity);
+              printf("  Temperature: %.1f C\r\n", temperature);
+              printf("  Humidity:    %.1f %%\r\n", humidity);
+              printf("  Retry Count: %d\r\n", retry_count);
+              printf("  Error Count: %d\r\n", error_count);
+              printf("  Env Changed: %d\r\n", env_changed);
               printf("========================================\r\n");
+
+              printf("\r\n  [Hint] Press KEY0 to export CSV\r\n");
             }
             else
             {
-              printf("[提示] 暂无传感器数据\r\n");
+              printf("  [Info] No sensor data available\r\n");
               printf("========================================\r\n");
             }
           }
@@ -309,6 +357,184 @@ static void vTaskKey(void *pvParameters)
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN 6 */
+static uint8_t filter_check_std_deviation(uint8_t count)
+{
+    if(count < 2) return 0;
+
+    float temp_sum = 0, humi_sum = 0;
+    for(uint8_t i = 0; i < count; i++)
+    {
+        temp_sum += g_samples[i].temperature;
+        humi_sum += g_samples[i].humidity;
+    }
+
+    float temp_avg = temp_sum / count;
+    float humi_avg = humi_sum / count;
+
+    float temp_var = 0, humi_var = 0;
+    for(uint8_t i = 0; i < count; i++)
+    {
+        float temp_diff = g_samples[i].temperature - temp_avg;
+        float humi_diff = g_samples[i].humidity - humi_avg;
+        temp_var += temp_diff * temp_diff;
+        humi_var += humi_diff * humi_diff;
+    }
+
+    float temp_std = sqrtf(temp_var / count);
+    float humi_std = sqrtf(humi_var / count);
+
+    return (temp_std <= FILTER_STD_TEMP_THRESHOLD) && (humi_std <= FILTER_STD_HUMI_THRESHOLD);
+}
+
+static void filter_remove_extremes(uint8_t *count)
+{
+    if(*count < 4) return;
+
+    uint8_t max_temp_idx = 0, min_temp_idx = 0;
+    uint8_t max_humi_idx = 0, min_humi_idx = 0;
+
+    for(uint8_t i = 1; i < *count; i++)
+    {
+        if(g_samples[i].temperature > g_samples[max_temp_idx].temperature)
+            max_temp_idx = i;
+        if(g_samples[i].temperature < g_samples[min_temp_idx].temperature)
+            min_temp_idx = i;
+        if(g_samples[i].humidity > g_samples[max_humi_idx].humidity)
+            max_humi_idx = i;
+        if(g_samples[i].humidity < g_samples[min_humi_idx].humidity)
+            min_humi_idx = i;
+    }
+
+    uint8_t remove_count = 0;
+    uint8_t remove_idx[4] = {255, 255, 255, 255};
+
+    if(remove_count < 4 && max_temp_idx != min_temp_idx)
+    {
+        uint8_t already = 0;
+        for(uint8_t i = 0; i < remove_count; i++)
+            if(remove_idx[i] == max_temp_idx) already = 1;
+        if(!already) remove_idx[remove_count++] = max_temp_idx;
+    }
+
+    if(remove_count < 4 && min_temp_idx != max_temp_idx)
+    {
+        uint8_t already = 0;
+        for(uint8_t i = 0; i < remove_count; i++)
+            if(remove_idx[i] == min_temp_idx) already = 1;
+        if(!already) remove_idx[remove_count++] = min_temp_idx;
+    }
+
+    if(remove_count < 4 && max_humi_idx != max_temp_idx && max_humi_idx != min_temp_idx)
+    {
+        uint8_t already = 0;
+        for(uint8_t i = 0; i < remove_count; i++)
+            if(remove_idx[i] == max_humi_idx) already = 1;
+        if(!already) remove_idx[remove_count++] = max_humi_idx;
+    }
+
+    if(remove_count < 4 && min_humi_idx != max_temp_idx && min_humi_idx != min_temp_idx && min_humi_idx != max_humi_idx)
+    {
+        uint8_t already = 0;
+        for(uint8_t i = 0; i < remove_count; i++)
+            if(remove_idx[i] == min_humi_idx) already = 1;
+        if(!already) remove_idx[remove_count++] = min_humi_idx;
+    }
+
+    for(uint8_t i = remove_count; i > 0; i--)
+    {
+        for(uint8_t j = 0; j < i - 1; j++)
+        {
+            if(remove_idx[j] > remove_idx[j + 1])
+            {
+                uint8_t temp = remove_idx[j];
+                remove_idx[j] = remove_idx[j + 1];
+                remove_idx[j + 1] = temp;
+            }
+        }
+    }
+
+    for(uint8_t i = 0; i < remove_count; i++)
+    {
+        for(uint8_t j = remove_idx[i]; j < (*count - 1); j++)
+        {
+            g_samples[j] = g_samples[j + 1];
+        }
+        (*count)--;
+        for(uint8_t k = i + 1; k < remove_count; k++)
+        {
+            remove_idx[k]--;
+        }
+    }
+}
+
+static void filter_add_sample(float temperature, float humidity, uint8_t *count)
+{
+    if(*count >= FILTER_SAMPLE_COUNT) return;
+
+    g_samples[*count].temperature = temperature;
+    g_samples[*count].humidity = humidity;
+    (*count)++;
+}
+
+static uint8_t filter_establish_standard(float *out_temp, float *out_humi, uint8_t *out_env_changed)
+{
+    for(g_retry_count = 0; g_retry_count < FILTER_MAX_RETRIES; g_retry_count++)
+    {
+        if(filter_check_std_deviation(g_sample_count))
+        {
+            float temp_sum = 0, humi_sum = 0;
+            for(uint8_t i = 0; i < g_sample_count; i++)
+            {
+                temp_sum += g_samples[i].temperature;
+                humi_sum += g_samples[i].humidity;
+            }
+            *out_temp = temp_sum / g_sample_count;
+            *out_humi = humi_sum / g_sample_count;
+
+            float temp_diff = fabsf(*out_temp - g_last_standard_temp);
+            float humi_diff = fabsf(*out_humi - g_last_standard_humi);
+            *out_env_changed = (temp_diff > FILTER_STD_TEMP_THRESHOLD * 2.0f) || 
+                              (humi_diff > FILTER_STD_HUMI_THRESHOLD * 2.0f);
+
+            return 1;
+        }
+
+        if(g_sample_count >= 4)
+        {
+            filter_remove_extremes(&g_sample_count);
+        }
+    }
+
+    g_retry_count = FILTER_MAX_RETRIES;
+    return 0;
+}
+
+static uint8_t filter_monitor_standard(float *out_temp, float *out_humi, uint8_t *out_env_changed)
+{
+    if(!filter_check_std_deviation(g_sample_count))
+    {
+        return 0;
+    }
+
+    float temp_sum = 0, humi_sum = 0;
+    for(uint8_t i = 0; i < g_sample_count; i++)
+    {
+        temp_sum += g_samples[i].temperature;
+        humi_sum += g_samples[i].humidity;
+    }
+
+    *out_temp = temp_sum / g_sample_count;
+    *out_humi = humi_sum / g_sample_count;
+
+    float temp_diff = fabsf(*out_temp - g_last_standard_temp);
+    float humi_diff = fabsf(*out_humi - g_last_standard_humi);
+
+    *out_env_changed = (temp_diff > FILTER_STD_TEMP_THRESHOLD * 2.0f) || 
+                      (humi_diff > FILTER_STD_HUMI_THRESHOLD * 2.0f);
+
+    return 1;
+}
+
 static void vTaskDHT11(void *pvParameters)
 {
     (void)pvParameters;
@@ -327,29 +553,114 @@ static void vTaskDHT11(void *pvParameters)
 
     printf("[DHT11] Initialization OK\r\n");
 
+    g_sample_count = 0;
+    g_retry_count = 0;
+    g_error_count = 0;
+    g_filter_state = FILTER_STATE_PHASE1_ESTABLISH;
+    g_last_cycle_start = get_tick_ms();
+    g_cycle_minute = 1;
+    g_phase1_pending = 0;
+
     for(;;)
     {
         if (g_system_state == SYSTEM_RUNNING)
         {
-            if (dht11_read_data(&temperature, &humidity) == 0)
-            {
-                tick = get_tick_ms();
+            tick = get_tick_ms();
 
-                if(sqlite_task_insert((float)temperature, (float)humidity) == 0)
+            if(tick - g_last_cycle_start >= MINUTE_CYCLE_MS)
+            {
+                if(g_phase1_pending)
                 {
-                    printf("[%u ms] [DHT11] 采集成功 -> 温度: %d°C, 湿度: %d%% -> 已存储到SQLite\r\n",
-                           tick, temperature, humidity);
+                    sqlite_task_update_by_timestamp(g_phase1_timestamp, g_error_count);
+                    g_phase1_pending = 0;
                 }
                 else
                 {
-                    printf("[%u ms] [DHT11] 采集成功 -> 温度: %d°C, 湿度: %d%% -> [警告] SQLite存储失败\r\n",
-                           tick, temperature, humidity);
+                    if(sqlite_task_insert(tick, 0.0f, 0.0f, g_retry_count, g_error_count, 1) == 0)
+                    {
+                        printf("[%ums P1] 阶段失败 -> T=0.0C H=0.0%% [min=%d retry=%d error=%d]\r\n",
+                               tick, g_cycle_minute, g_retry_count, g_error_count);
+                    }
                 }
+
+                g_last_cycle_start = tick;
+                g_cycle_minute++;
+                g_filter_state = FILTER_STATE_PHASE1_ESTABLISH;
+                g_sample_count = 0;
+                g_retry_count = 0;
+                g_error_count = 0;
             }
-            else
+
+            if (dht11_read_data(&temperature, &humidity) == 0)
             {
-                tick = get_tick_ms();
-                printf("[%u ms] [DHT11] 采集失败\r\n", tick);
+                filter_add_sample((float)temperature, (float)humidity, &g_sample_count);
+
+                if(g_sample_count >= FILTER_SAMPLE_COUNT)
+                {
+                    float std_temp, std_humi;
+                    uint8_t env_changed = 0;
+                    uint8_t success = 0;
+
+                    if(g_filter_state == FILTER_STATE_PHASE1_ESTABLISH)
+                    {
+                        success = filter_establish_standard(&std_temp, &std_humi, &env_changed);
+
+                        if(success)
+                        {
+                            g_phase1_timestamp = tick;
+                            g_phase1_pending = 1;
+
+                            if(sqlite_task_insert(tick, std_temp, std_humi, g_retry_count, 0, 1) == 0)
+                            {
+                                printf("[%ums P1] 新标准已存储 -> T=%.1fC H=%.1f%% [min=%d retry=%d]\r\n",
+                                       tick, std_temp, std_humi, g_cycle_minute, g_retry_count);
+                            }
+
+                            g_last_standard_temp = std_temp;
+                            g_last_standard_humi = std_humi;
+
+                            g_filter_state = FILTER_STATE_PHASE2_MONITOR;
+                            g_sample_count = 0;
+                        }
+                        else {g_retry_count++;}
+                    }
+                    else
+                    {
+                        success = filter_monitor_standard(&std_temp, &std_humi, &env_changed);
+
+                        if(success)
+                        {
+                            if(env_changed)
+                            {
+                                if(g_phase1_pending)
+                                {
+                                    sqlite_task_update_by_timestamp(g_phase1_timestamp, g_error_count);
+                                    g_phase1_pending = 0;
+                                }
+
+                                if(sqlite_task_insert(tick, std_temp, std_humi, 0, 0, env_changed) == 0)
+                                {
+                                    printf("[%ums P2] 新标准已存储 -> T=%.1fC H=%.1f%% [env=%d]\r\n",
+                                           tick, std_temp, std_humi, env_changed);
+                                }
+
+                                g_last_standard_temp = std_temp;
+                                g_last_standard_humi = std_humi;
+                                g_error_count = 0;
+                            }
+                            g_sample_count = 0;
+                        }
+                        else
+                        {
+                            g_error_count++;
+                            if(g_phase1_pending)
+                            {
+                                sqlite_task_update_by_timestamp(g_phase1_timestamp, g_error_count);
+                            }
+                            filter_remove_extremes(&g_sample_count);
+                        }
+                    }
+                }
             }
         }
 

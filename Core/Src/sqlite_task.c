@@ -430,8 +430,11 @@ int sqlite_task_init(void)
     const char *sql = "CREATE TABLE IF NOT EXISTS sensor_data ("
                       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                       "timestamp INTEGER NOT NULL, "
-                      "temperature REAL, "
-                      "humidity REAL);";
+                      "temperature REAL NOT NULL, "
+                      "humidity REAL NOT NULL, "
+                      "retry_count INTEGER DEFAULT 1, "
+                      "error_count INTEGER DEFAULT 0, "
+                      "env_changed INTEGER DEFAULT 0);";
 
     result = sqlite3_exec(db, sql, NULL, NULL, &err_msg);
     
@@ -456,29 +459,27 @@ int sqlite_task_init(void)
     return 0;
 }
 
-int sqlite_task_insert(float temperature, float humidity)
+int sqlite_task_insert(uint32_t timestamp, float temperature, float humidity,
+                      uint8_t retry_count,
+                      uint8_t error_count,
+                      uint8_t env_changed)
 {
     if(db == NULL)
     {
-        printf("[SQLite] ERROR: Database not initialized in sqlite_task_insert()\r\n");
         return -1;
     }
 
-    char sql[128];
-    int64_t timestamp = HAL_GetTick();
-
+    char sql[256];
     snprintf(sql, sizeof(sql),
-             "INSERT INTO sensor_data (timestamp, temperature, humidity) VALUES (%lld, %.2f, %.2f);",
-             (long long)timestamp, temperature, humidity);
+             "INSERT INTO sensor_data (timestamp, temperature, humidity, retry_count, error_count, env_changed) VALUES (%u, %.2f, %.2f, %d, %d, %d);",
+             timestamp, temperature, humidity, retry_count, error_count, env_changed);
 
     char *err_msg = NULL;
     int result = sqlite3_exec(db, sql, NULL, NULL, &err_msg);
     if(result != SQLITE_OK)
     {
-        printf("[SQLite] ERROR: INSERT failed!\r\n");
         if(err_msg != NULL)
         {
-            printf("[SQLite] Error message: %s\r\n", err_msg);
             sqlite3_free(err_msg);
         }
         return -1;
@@ -487,21 +488,48 @@ int sqlite_task_insert(float temperature, float humidity)
     return 0;
 }
 
-int sqlite_task_query_latest(float *temperature, float *humidity)
+int sqlite_task_update_by_timestamp(uint32_t timestamp, uint8_t error_count)
 {
     if(db == NULL)
     {
-        printf("[SQLite] ERROR: Database not initialized in sqlite_task_query_latest()\r\n");
         return -1;
     }
 
-    const char *sql = "SELECT temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 1;";
+    char sql[128];
+    snprintf(sql, sizeof(sql),
+             "UPDATE sensor_data SET error_count = %d WHERE timestamp = %u;",
+             error_count, timestamp);
+
+    char *err_msg = NULL;
+    int result = sqlite3_exec(db, sql, NULL, NULL, &err_msg);
+    if(result != SQLITE_OK)
+    {
+        if(err_msg != NULL)
+        {
+            sqlite3_free(err_msg);
+        }
+        return -1;
+    }
+
+    return 0;
+}
+
+int sqlite_task_query_latest(float *temperature, float *humidity,
+                            uint8_t *retry_count,
+                            uint8_t *error_count,
+                            uint8_t *env_changed)
+{
+    if(db == NULL)
+    {
+        return -1;
+    }
+
+    const char *sql = "SELECT temperature, humidity, retry_count, error_count, env_changed FROM sensor_data ORDER BY id DESC LIMIT 1;";
     sqlite3_stmt *stmt;
     int result = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
 
     if(result != SQLITE_OK)
     {
-        printf("[SQLite] ERROR: sqlite3_prepare_v2() failed with code: %d\r\n", result);
         return -1;
     }
 
@@ -510,16 +538,11 @@ int sqlite_task_query_latest(float *temperature, float *humidity)
     {
         *temperature = (float)sqlite3_column_double(stmt, 0);
         *humidity = (float)sqlite3_column_double(stmt, 1);
+        *retry_count = (uint8_t)sqlite3_column_int(stmt, 2);
+        *error_count = (uint8_t)sqlite3_column_int(stmt, 3);
+        *env_changed = (uint8_t)sqlite3_column_int(stmt, 4);
         sqlite3_finalize(stmt);
         return 0;
-    }
-    else if(result == SQLITE_DONE)
-    {
-        printf("[SQLite] Query: No data found in database\r\n");
-    }
-    else
-    {
-        printf("[SQLite] ERROR: sqlite3_step() failed with code: %d\r\n", result);
     }
 
     sqlite3_finalize(stmt);
@@ -558,7 +581,7 @@ void sqlite_task_print_status(void)
                 {
                     sqlite3_finalize(stmt);
 
-                    const char *sql2 = "SELECT timestamp, temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 1";
+                    const char *sql2 = "SELECT timestamp, temperature, humidity, retry_count, error_count, env_changed FROM sensor_data ORDER BY id DESC LIMIT 1";
                     sqlite3_stmt *stmt2;
                     if(sqlite3_prepare_v2(db, sql2, -1, &stmt2, NULL) == SQLITE_OK)
                     {
@@ -567,7 +590,11 @@ void sqlite_task_print_status(void)
                             int ts = sqlite3_column_int(stmt2, 0);
                             float temp = (float)sqlite3_column_double(stmt2, 1);
                             float humi = (float)sqlite3_column_double(stmt2, 2);
+                            int retry = sqlite3_column_int(stmt2, 3);
+                            int error = sqlite3_column_int(stmt2, 4);
+                            int env = sqlite3_column_int(stmt2, 5);
                             printf("[DB] Latest: T=%dms | Temp=%.1fC | Humi=%.1f%%\r\n", ts, temp, humi);
+                            printf("[DB] Meta: retry=%d, error=%d, env=%d\r\n", retry, error, env);
                         }
                         sqlite3_finalize(stmt2);
                     }
@@ -596,4 +623,48 @@ void vTaskSQLite(void *pvParameters)
 
     printf("[SQLite Task] Ready.\r\n");
     vTaskDelay(portMAX_DELAY);
+}
+
+void sqlite_task_export_csv(void)
+{
+    if(db == NULL)
+    {
+        return;
+    }
+
+    const char *sql = "SELECT id, timestamp, temperature, humidity, retry_count, error_count, env_changed FROM sensor_data ORDER BY id ASC;";
+    sqlite3_stmt *stmt;
+    int result = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if(result != SQLITE_OK)
+    {
+        return;
+    }
+
+    printf("\r\n");
+    printf("========================================\r\n");
+    printf("    SQLite Data Export (CSV Format)     \r\n");
+    printf("========================================\r\n");
+    printf("%-4s %-12s %-11s %-10s %-6s %-6s %-10s\r\n",
+           "ID", "Time(ms)", "Temp(C)", "Humi(%)", "Retry", "Error", "Env");
+    printf("%-4s %-12s %-11s %-10s %-6s %-6s %-10s\r\n",
+           "---", "---------", "--------", "-------", "-----", "-----", "---");
+
+    while((result = sqlite3_step(stmt)) == SQLITE_ROW)
+    {
+        int id = sqlite3_column_int(stmt, 0);
+        int timestamp = sqlite3_column_int(stmt, 1);
+        float temperature = (float)sqlite3_column_double(stmt, 2);
+        float humidity = (float)sqlite3_column_double(stmt, 3);
+        int retry_count = sqlite3_column_int(stmt, 4);
+        int error_count = sqlite3_column_int(stmt, 5);
+        int env_changed = sqlite3_column_int(stmt, 6);
+
+        printf("%-4d %-12d %-11.1f %-10.1f %-6d %-6d %-10d\r\n",
+               id, timestamp, temperature, humidity,
+               retry_count, error_count, env_changed);
+    }
+
+    sqlite3_finalize(stmt);
+    printf("========================================\r\n");
 }
