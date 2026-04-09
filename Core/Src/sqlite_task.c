@@ -18,7 +18,6 @@ typedef struct {
 
 static int ram_close(sqlite3_file *pFile)
 {
-    printf("[VFS] ram_close called\r\n");
     (void)pFile;
     return SQLITE_OK;
 }
@@ -197,8 +196,6 @@ static const struct sqlite3_io_methods ram_io_methods = {
 
 static int ram_vfs_open(sqlite3_vfs *pVfs, const char *zName, sqlite3_file *pFile, int flags, int *pOutFlags)
 {
-    printf("[VFS] ram_vfs_open: name=%s, flags=0x%x\r\n", zName ? zName : "NULL", flags);
-    
     (void)pVfs;
     (void)pOutFlags;
     
@@ -209,12 +206,10 @@ static int ram_vfs_open(sqlite3_vfs *pVfs, const char *zName, sqlite3_file *pFil
     
     if(flags & SQLITE_OPEN_CREATE)
     {
-        printf("[VFS] ram_vfs_open: Clearing %dKB RAM storage\r\n", RAM_DB_SIZE / 1024);
         memset(g_ram_db_storage, 0, RAM_DB_SIZE);
     }
     
     p->pMethods = &ram_io_methods;
-    printf("[VFS] ram_vfs_open: SUCCESS\r\n");
     return SQLITE_OK;
 }
 
@@ -223,15 +218,13 @@ static int ram_vfs_delete(sqlite3_vfs *pVfs, const char *zName, int syncDir)
     (void)pVfs;
     (void)zName;
     (void)syncDir;
-    printf("[VFS] ram_vfs_delete: name=%s\r\n", zName ? zName : "NULL");
     return SQLITE_OK;
 }
 
 static int ram_vfs_access(sqlite3_vfs *pVfs, const char *zName, int flags, int *pResOut)
 {
     (void)pVfs;
-    
-    printf("[VFS] ram_vfs_access: name=%s, flags=%d\r\n", zName ? zName : "NULL", flags);
+    (void)zName;
     
     if(flags == SQLITE_ACCESS_EXISTS)
     {
@@ -373,10 +366,7 @@ static sqlite3_vfs ram_vfs = {
 
 int sqlite3_os_init(void)
 {
-    printf("[SQLite] Registering RAM VFS (64KB static buffer)...\r\n");
-    int ret = sqlite3_vfs_register(&ram_vfs, 1);
-    printf("[SQLite] Register result: %d\r\n", ret);
-    return ret;
+    return sqlite3_vfs_register(&ram_vfs, 1);
 }
 
 int sqlite3_os_end(void)
@@ -388,20 +378,16 @@ int sqlite_task_init(void)
 {
     int result;
 
-    printf("[SQLite] Step 1: Initializing SQLite OS layer...\r\n");
     result = sqlite3_os_init();
     if(result != SQLITE_OK)
     {
         printf("[SQLite] ERROR: sqlite3_os_init() failed with code: %d!\r\n", result);
         return -1;
     }
-    printf("[SQLite] Step 1: PASSED\r\n");
 
-    printf("[SQLite] Step 2: Opening database 'sensor.db' with RAM VFS...\r\n");
     result = sqlite3_open_v2("sensor.db", &db,
                             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
                             "ram_vfs");
-    printf("[SQLite] sqlite3_open_v2 result: %d\r\n", result);
     if(result != SQLITE_OK)
     {
         printf("[SQLite] ERROR: sqlite3_open_v2() failed with code: %d\r\n", result);
@@ -417,20 +403,14 @@ int sqlite_task_init(void)
         }
         return -1;
     }
-    printf("[SQLite] Step 2: PASSED - Database opened successfully\r\n");
 
-    printf("[SQLite] Step 2.1: Configuring database pragmas...\r\n");
     char *err_msg = NULL;
     
-    result = sqlite3_exec(db, "PRAGMA journal_mode=DELETE", NULL, NULL, &err_msg);
+    result = sqlite3_exec(db, "PRAGMA journal_mode=OFF", NULL, NULL, &err_msg);
     if(result != SQLITE_OK)
     {
         printf("[SQLite] WARNING: Failed to set journal mode: %s\r\n", err_msg ? err_msg : "unknown");
         if(err_msg) sqlite3_free(err_msg);
-    }
-    else
-    {
-        printf("[SQLite] Journal mode set to DELETE\r\n");
     }
     
     result = sqlite3_exec(db, "PRAGMA synchronous=FULL", NULL, NULL, &err_msg);
@@ -439,10 +419,6 @@ int sqlite_task_init(void)
         printf("[SQLite] WARNING: Failed to set synchronous: %s\r\n", err_msg ? err_msg : "unknown");
         if(err_msg) sqlite3_free(err_msg);
     }
-    else
-    {
-        printf("[SQLite] Synchronous mode set to FULL\r\n");
-    }
     
     result = sqlite3_exec(db, "PRAGMA locking_mode=NORMAL", NULL, NULL, &err_msg);
     if(result != SQLITE_OK)
@@ -450,21 +426,14 @@ int sqlite_task_init(void)
         printf("[SQLite] WARNING: Failed to set locking mode: %s\r\n", err_msg ? err_msg : "unknown");
         if(err_msg) sqlite3_free(err_msg);
     }
-    else
-    {
-        printf("[SQLite] Locking mode set to NORMAL\r\n");
-    }
 
-    printf("[SQLite] Step 3: Creating table 'sensor_data'...\r\n");
     const char *sql = "CREATE TABLE IF NOT EXISTS sensor_data ("
                       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                       "timestamp INTEGER NOT NULL, "
                       "temperature REAL, "
                       "humidity REAL);";
 
-    printf("[SQLite] About to execute CREATE TABLE SQL...\r\n");
     result = sqlite3_exec(db, sql, NULL, NULL, &err_msg);
-    printf("[SQLite] sqlite3_exec result: %d\r\n", result);
     
     if(result != SQLITE_OK)
     {
@@ -483,8 +452,6 @@ int sqlite_task_init(void)
         db = NULL;
         return -1;
     }
-    printf("[SQLite] Step 3: PASSED - Table created successfully\r\n");
-    printf("[SQLite] Initialization completed successfully!\r\n");
 
     return 0;
 }
@@ -504,8 +471,6 @@ int sqlite_task_insert(float temperature, float humidity)
              "INSERT INTO sensor_data (timestamp, temperature, humidity) VALUES (%lld, %.2f, %.2f);",
              (long long)timestamp, temperature, humidity);
 
-    printf("[SQLite] Inserting: temp=%.2f, humi=%.2f, ts=%lld\r\n", temperature, humidity, (long long)timestamp);
-
     char *err_msg = NULL;
     int result = sqlite3_exec(db, sql, NULL, NULL, &err_msg);
     if(result != SQLITE_OK)
@@ -519,7 +484,6 @@ int sqlite_task_insert(float temperature, float humidity)
         return -1;
     }
 
-    printf("[SQLite] Insert: SUCCESS\r\n");
     return 0;
 }
 
@@ -530,8 +494,6 @@ int sqlite_task_query_latest(float *temperature, float *humidity)
         printf("[SQLite] ERROR: Database not initialized in sqlite_task_query_latest()\r\n");
         return -1;
     }
-
-    printf("[SQLite] Querying latest sensor data...\r\n");
 
     const char *sql = "SELECT temperature, humidity FROM sensor_data ORDER BY id DESC LIMIT 1;";
     sqlite3_stmt *stmt;
@@ -549,7 +511,6 @@ int sqlite_task_query_latest(float *temperature, float *humidity)
         *temperature = (float)sqlite3_column_double(stmt, 0);
         *humidity = (float)sqlite3_column_double(stmt, 1);
         sqlite3_finalize(stmt);
-        printf("[SQLite] Query Result: temp=%.2f, humi=%.2f\r\n", *temperature, *humidity);
         return 0;
     }
     else if(result == SQLITE_DONE)
@@ -574,7 +535,7 @@ void sqlite_task_print_status(void)
 
     if(db == NULL)
     {
-        printf("[DB] Database: NOT INITIALIZED\r\n");
+        printf("[DB] NOT INITIALIZED\r\n");
     }
     else
     {
@@ -584,15 +545,14 @@ void sqlite_task_print_status(void)
 
         if(result != SQLITE_OK)
         {
-            printf("[DB] Database: ERROR\r\n");
+            printf("[DB] ERROR\r\n");
         }
         else
         {
             if(sqlite3_step(stmt) == SQLITE_ROW)
             {
                 int count = sqlite3_column_int(stmt, 0);
-                printf("[DB] Database: READY\r\n");
-                printf("[DB] Records: %d\r\n", count);
+                printf("[DB] READY - Records: %d\r\n", count);
 
                 if(count > 0)
                 {
@@ -612,17 +572,8 @@ void sqlite_task_print_status(void)
                         sqlite3_finalize(stmt2);
                     }
                 }
-                else
-                {
-                    sqlite3_finalize(stmt);
-                    printf("[DB] Database: EMPTY\r\n");
-                }
             }
-            else
-            {
-                sqlite3_finalize(stmt);
-                printf("[DB] Database: EMPTY\r\n");
-            }
+            sqlite3_finalize(stmt);
         }
     }
 
@@ -632,65 +583,17 @@ void sqlite_task_print_status(void)
 void vTaskSQLite(void *pvParameters)
 {
     (void)pvParameters;
-    int loop_count = 0;
 
-    printf("[SQLite Task] Task started! Loop test begins...\r\n");
-    
-    while(1)
-    {
-        loop_count++;
-        printf("[SQLite Task] Loop count: %d\r\n", loop_count);
-        
-        if(loop_count >= 3)
-        {
-            printf("[SQLite Task] Loop test complete. Proceeding to init.\r\n");
-            break;
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-
-    printf("[SQLite Task] Step 1: Clearing RAM database storage (%dKB)...\r\n", RAM_DB_SIZE / 1024);
+    printf("[SQLite Task] Initializing database...\r\n");
     memset(g_ram_db_storage, 0, RAM_DB_SIZE);
-    printf("[SQLite Task] RAM storage cleared\r\n");
 
-    printf("[SQLite Task] Step 2: Initializing SQLite Database...\r\n");
     if(sqlite_task_init() != 0)
     {
-        printf("[SQLite Task] FATAL: SQLite initialization failed! Entering infinite loop with debug.\r\n");
-        
-        while(1)
-        {
-            loop_count++;
-            printf("[SQLite Task] ERROR LOOP: Count=%d - SQLite init failed, waiting...\r\n", loop_count);
-            vTaskDelay(pdMS_TO_TICKS(2000));
-        }
-    }
-    printf("[SQLite Task] SQLite initialized successfully\r\n");
-
-    printf("[SQLite Task] Step 3: Inserting 5 sensor data records...\r\n");
-    for(int i = 0; i < 5; i++)
-    {
-        printf("[SQLite Task] Inserting record %d/5...\r\n", i + 1);
-        if(sqlite_task_insert(25.0f + i * 0.5f, 60.0f + i * 2.0f) != 0)
-        {
-            printf("[SQLite Task] WARNING: Insert failed for record %d\r\n", i + 1);
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-    printf("[SQLite Task] All records inserted\r\n");
-
-    printf("[SQLite Task] Step 4: Querying latest record...\r\n");
-    float temp, humi;
-    if(sqlite_task_query_latest(&temp, &humi) == 0)
-    {
-        printf("[SQLite Task] Query SUCCESS: Latest data - Temp=%.2f, Humi=%.2f\r\n", temp, humi);
-    }
-    else
-    {
-        printf("[SQLite Task] Query FAILED or no data available\r\n");
+        printf("[SQLite Task] ERROR: Initialization failed!\r\n");
+        vTaskDelay(portMAX_DELAY);
+        return;
     }
 
-    printf("[SQLite Task] All operations completed. Task entering suspended state.\r\n");
+    printf("[SQLite Task] Ready.\r\n");
     vTaskDelay(portMAX_DELAY);
 }

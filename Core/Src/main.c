@@ -39,7 +39,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define TASK_LED_STACK     256
-#define TASK_KEY_STACK     256
+#define TASK_KEY_STACK     1024
 #define TASK_SQLITE_STACK  2048
 
 #define TASK_LED_PRIO      2
@@ -253,7 +253,24 @@ static void vTaskKey(void *pvParameters)
           {
             uint32_t ms = get_tick_ms();
             uint64_t us = get_tick_us();
-            printf("[KEY] KEY1 -> Current Timestamp: %u ms (%llu us)\r\n", ms, us);
+            printf("\r\n");
+            printf("========================================\r\n");
+            printf("       KEY1 - 传感器数据查询            \r\n");
+            printf("========================================\r\n");
+            printf("[时间戳] %u ms (%llu us)\r\n", ms, us);
+
+            float temperature, humidity;
+            if(sqlite_task_query_latest(&temperature, &humidity) == 0)
+            {
+              printf("[传感器] 温度: %.1f°C\r\n", temperature);
+              printf("[传感器] 湿度: %.1f%%\r\n", humidity);
+              printf("========================================\r\n");
+            }
+            else
+            {
+              printf("[提示] 暂无传感器数据\r\n");
+              printf("========================================\r\n");
+            }
           }
           break;
 
@@ -317,13 +334,22 @@ static void vTaskDHT11(void *pvParameters)
             if (dht11_read_data(&temperature, &humidity) == 0)
             {
                 tick = get_tick_ms();
-                printf("[%u ms] [DHT11] Temperature: %d°C, Humidity: %d%%\r\n",
-                       tick, temperature, humidity);
+
+                if(sqlite_task_insert((float)temperature, (float)humidity) == 0)
+                {
+                    printf("[%u ms] [DHT11] 采集成功 -> 温度: %d°C, 湿度: %d%% -> 已存储到SQLite\r\n",
+                           tick, temperature, humidity);
+                }
+                else
+                {
+                    printf("[%u ms] [DHT11] 采集成功 -> 温度: %d°C, 湿度: %d%% -> [警告] SQLite存储失败\r\n",
+                           tick, temperature, humidity);
+                }
             }
             else
             {
                 tick = get_tick_ms();
-                printf("[%u ms] [DHT11] ERROR: Read failed\r\n", tick);
+                printf("[%u ms] [DHT11] 采集失败\r\n", tick);
             }
         }
 
