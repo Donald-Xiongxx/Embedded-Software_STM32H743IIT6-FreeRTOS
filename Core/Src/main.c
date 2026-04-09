@@ -28,6 +28,7 @@
 #include "sqlite_task.h"
 #include "key.h"
 #include "timestamp.h"
+#include "dht11.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,7 +56,9 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define TASK_DHT11_STACK   256
+#define TASK_DHT11_PRIO    3
+#define DHT11_READ_INTERVAL_MS  2000
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -64,6 +67,7 @@ TaskHandle_t xTaskLED1Handle = NULL;
 TaskHandle_t xTaskLED2Handle = NULL;
 TaskHandle_t xTaskKeyHandle  = NULL;
 TaskHandle_t xTaskSQLiteHandle = NULL;
+TaskHandle_t xTaskDHT11Handle = NULL;
 
 volatile SystemState_t g_system_state = SYSTEM_RUNNING;
 /* USER CODE END PV */
@@ -75,6 +79,7 @@ static void MPU_Config(void);
 static void vTaskLED1(void *pvParameters);
 static void vTaskLED2(void *pvParameters);
 static void vTaskKey(void *pvParameters);
+static void vTaskDHT11(void *pvParameters);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,6 +123,7 @@ int main(void)
   xTaskCreate(vTaskLED2,  "LED2_Task",  TASK_LED_STACK,  NULL, TASK_LED_PRIO,  &xTaskLED2Handle);
   xTaskCreate(vTaskKey,   "Key_Task",   TASK_KEY_STACK,  NULL, TASK_KEY_PRIO,   &xTaskKeyHandle);
   xTaskCreate(vTaskSQLite, "SQLite_Task", TASK_SQLITE_STACK, NULL, TASK_SQLITE_PRIO, &xTaskSQLiteHandle);
+  xTaskCreate(vTaskDHT11,  "DHT11_Task", TASK_DHT11_STACK,  NULL, TASK_DHT11_PRIO, &xTaskDHT11Handle);
 
   vTaskStartScheduler();
   /* USER CODE END 2 */
@@ -283,7 +289,48 @@ static void vTaskKey(void *pvParameters)
 
 /* USER CODE BEGIN 5 */
 
-/* USER CODE END 5 */
+/* USER CODE END 4 */
+
+/* USER CODE BEGIN 6 */
+static void vTaskDHT11(void *pvParameters)
+{
+    (void)pvParameters;
+    uint8_t temperature = 0;
+    uint8_t humidity = 0;
+    uint32_t tick = 0;
+
+    printf("[DHT11] Task Started\r\n");
+
+    if (dht11_init() != 0)
+    {
+        printf("[DHT11] ERROR: DHT11 not found!\r\n");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    printf("[DHT11] Initialization OK\r\n");
+
+    for(;;)
+    {
+        if (g_system_state == SYSTEM_RUNNING)
+        {
+            if (dht11_read_data(&temperature, &humidity) == 0)
+            {
+                tick = get_tick_ms();
+                printf("[%u ms] [DHT11] Temperature: %d°C, Humidity: %d%%\r\n",
+                       tick, temperature, humidity);
+            }
+            else
+            {
+                tick = get_tick_ms();
+                printf("[%u ms] [DHT11] ERROR: Read failed\r\n", tick);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(DHT11_READ_INTERVAL_MS));
+    }
+}
+/* USER CODE END 6 */
 
 void MPU_Config(void)
 {
